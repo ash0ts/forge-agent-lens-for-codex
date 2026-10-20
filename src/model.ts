@@ -34,6 +34,11 @@ export interface ToolCall {
   arguments?: string;
   result?: string;
   mcpServer?: string;
+  /** Preserve transport/application failure independently of tool result text. */
+  errorCategory?: 'protocol' | 'application' | 'missing_result';
+  /** A completion-only event does not tell us when execution started. */
+  timingSource?: 'native' | 'completion_only';
+  duplicateEvents?: number;
 }
 
 /** A tool the model requested within a chat (for that chat's output.messages). */

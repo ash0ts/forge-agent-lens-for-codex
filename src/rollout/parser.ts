@@ -30,6 +30,7 @@ import type {
   LocalShellCallItem,
   MessageItem,
   McpToolCallEndEvent,
+  McpItemEvent,
   ReasoningItem,
   ResponseItemPayload,
   RolloutLine,
@@ -297,6 +298,52 @@ function applyEvent(
   timestamp: Date
 ): boolean {
   switch (event.type) {
+    case 'item_started':
+    case 'item_completed': {
+      const nested = event as McpItemEvent;
+      if (nested.item?.type !== 'McpToolCall' || !nested.item.id) return false;
+      const item = nested.item;
+      let tool = builder.toolsByCallId.get(item.id);
+      const nativeStart = nested.started_at_ms;
+      if (!tool) {
+        tool = {
+          callId: item.id,
+          name: item.tool,
+          kind: 'mcp',
+          mcpServer: item.server,
+          arguments: safeJson(item.arguments),
+          startTime: nativeStart != null ? new Date(nativeStart) : timestamp,
+          endTime: timestamp,
+          timingSource:
+            nativeStart != null || event.type === 'item_started'
+              ? 'native'
+              : 'completion_only',
+          errorCategory: 'missing_result',
+        };
+        // These are operations inside exec, not another model request. Keep
+        // exec as its own tool; don't add these to chat.toolCalls a second time.
+        registerTool(builder, tool);
+      }
+      tool.kind = 'mcp';
+      tool.name = item.tool;
+      tool.mcpServer = item.server;
+      tool.arguments = safeJson(item.arguments);
+      if (event.type === 'item_completed') {
+        if (tool.result !== undefined) {
+          tool.duplicateEvents = (tool.duplicateEvents ?? 0) + 1;
+          return false; // retain the first result instead of replacing evidence
+        }
+        tool.result =
+          item.result == null ? undefined : renderResult(item.result);
+        tool.endTime =
+          nested.completed_at_ms != null
+            ? new Date(nested.completed_at_ms)
+            : timestamp;
+        tool.errorCategory = mcpError(item.result, item.status, item.error);
+      }
+      builder.lastBoundaryTime = timestamp;
+      return false;
+    }
     case EVENT_MSG.TOKEN_COUNT: {
       const tokenCount = event as TokenCountEvent;
       closeChat(builder, timestamp, tokenCount.info?.last_token_usage);
@@ -311,6 +358,7 @@ function applyEvent(
         if (mcpEnd.invocation?.tool) tool.name = mcpEnd.invocation.tool;
         tool.result = renderResult(mcpEnd.result);
         tool.endTime = timestamp;
+        tool.errorCategory = mcpError(mcpEnd.result);
       }
       builder.lastBoundaryTime = timestamp;
       return false;
@@ -403,6 +451,29 @@ function registerRequestedTool(builder: TurnBuilder, tool: ToolCall): void {
 function registerTool(builder: TurnBuilder, tool: ToolCall): void {
   builder.tools.push(tool);
   builder.toolsByCallId.set(tool.callId, tool);
+}
+
+function mcpError(
+  result: unknown,
+  status?: string,
+  error?: unknown
+): ToolCall['errorCategory'] {
+  if (status === 'failed' || error) return 'protocol';
+  if (result == null) return 'missing_result';
+  if (typeof result !== 'object') return undefined;
+  const body = result as Record<string, unknown>;
+  if (body.isError || body.error || body.errors) return 'protocol';
+  if (body.success === false || body.status === 'error') return 'application';
+  for (const part of Array.isArray(body.content) ? body.content : []) {
+    try {
+      const inner = JSON.parse(part.text);
+      if (inner.error || inner.errors || inner.success === false)
+        return 'application';
+    } catch {
+      // A plain-text successful response is not an application error.
+    }
+  }
+  return undefined;
 }
 
 function finalizeTurn(builder: TurnBuilder): ReconstructedTurn {

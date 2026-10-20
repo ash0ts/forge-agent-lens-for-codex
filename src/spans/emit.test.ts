@@ -155,6 +155,23 @@ describe('emitTurn', () => {
     ).toBeDefined();
   });
 
+  it('exports categorical failures without repeating an SDK exception body', async () => {
+    exporter.reset();
+    const turn = turnFromFixture();
+    turn.tools[1].errorCategory = 'application';
+    turn.tools[1].timingSource = 'native';
+    await emitTurn(turn, true, DEFAULT_PROVIDER_NAME);
+    const tool = exporter
+      .getFinishedSpans()
+      .find(s => s.attributes['gen_ai.tool.call.id'] === 'call_2')!;
+    expect(tool.status.code).toBe(2); // OTel ERROR
+    expect(tool.attributes['codex.tool.error_category']).toBe('application');
+    expect(tool.attributes['codex.tool.evidence_source']).toBe(
+      'reconstructed_rollout'
+    );
+    expect(tool.attributes['gen_ai.tool.call.result']).toBe('contents of a');
+  });
+
   it('backdates and clamps child timestamps to the turn window', async () => {
     const turn = turnFromFixture();
     turn.chats[0]!.startTime = new Date(turn.startTime.getTime() - 1000);

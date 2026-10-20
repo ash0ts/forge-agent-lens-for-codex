@@ -136,10 +136,23 @@ function emitTool(
   if (tool.mcpServer) {
     toolSpan.setAttributes({[MCP.SERVER_NAME]: tool.mcpServer});
   }
+  toolSpan.setAttributes({
+    'codex.tool.evidence_source': 'reconstructed_rollout',
+    ...(tool.timingSource
+      ? {'codex.tool.timing_source': tool.timingSource}
+      : {}),
+    ...(tool.duplicateEvents
+      ? {'codex.tool.duplicate_events': tool.duplicateEvents}
+      : {}),
+    ...(tool.errorCategory
+      ? {'codex.tool.error_category': tool.errorCategory}
+      : {}),
+  });
   toolSpan.end({
     result:
       includeContent && tool.result != null ? truncate(tool.result) : undefined,
     endTime: clamp(tool.endTime, turn.startTime, turn.endTime),
+    ...(tool.errorCategory ? {error: new Error(tool.errorCategory)} : {}),
   });
 }
 

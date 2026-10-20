@@ -116,6 +116,22 @@ export interface McpToolCallEndEvent {
   result?: unknown;
 }
 
+export interface McpItemEvent {
+  type: 'item_started' | 'item_completed';
+  started_at_ms?: number;
+  completed_at_ms?: number;
+  item: {
+    type: 'McpToolCall';
+    id: string;
+    server: string;
+    tool: string;
+    arguments?: unknown;
+    result?: unknown;
+    status?: string;
+    error?: unknown;
+  };
+}
+
 export type EventMsgPayload =
   | TokenCountEvent
   | TaskStartedEvent
@@ -123,6 +139,7 @@ export type EventMsgPayload =
   | AgentMessageEvent
   | AgentReasoningEvent
   | McpToolCallEndEvent
+  | McpItemEvent
   | {type: string}; // forward-compat: events we don't model yet
 
 // --- response_item (inline-tagged by `type`) --------------------------------
