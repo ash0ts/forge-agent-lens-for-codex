@@ -158,8 +158,8 @@ describe('emitTurn', () => {
   it('exports categorical failures without repeating an SDK exception body', async () => {
     exporter.reset();
     const turn = turnFromFixture();
-    turn.tools[1].errorCategory = 'application';
-    turn.tools[1].timingSource = 'native';
+    turn.tools[1]!.errorCategory = 'application';
+    turn.tools[1]!.timingSource = 'native';
     await emitTurn(turn, true, DEFAULT_PROVIDER_NAME);
     const tool = exporter
       .getFinishedSpans()

@@ -84,8 +84,8 @@ describe('reconstructTurns', () => {
       record(4, 'event_msg', {type: 'task_complete', turn_id: 't1'}),
     ];
     const {turns} = reconstruct(lines);
-    expect(turns[0].tools).toHaveLength(2);
-    expect(turns[0].tools[1]).toMatchObject({
+    expect(turns[0]!.tools).toHaveLength(2);
+    expect(turns[0]!.tools[1]).toMatchObject({
       callId: 'inner',
       kind: 'mcp',
       name: 'query',
@@ -94,7 +94,7 @@ describe('reconstructTurns', () => {
       startTime: new Date(FIXTURE_BASE_MS + 1000),
       endTime: new Date(FIXTURE_BASE_MS + 2500),
     });
-    expect(turns[0].chats[0].toolCalls.map(t => t.callId)).toEqual(['outer']);
+    expect(turns[0]!.chats[0]!.toolCalls.map(t => t.callId)).toEqual(['outer']);
   });
 
   it.each([
@@ -102,6 +102,17 @@ describe('reconstructTurns', () => {
     {status: 'completed', result: {isError: true}, expected: 'protocol'},
     {status: 'completed', result: null, expected: 'missing_result'},
     {status: 'completed', result: {content: []}, expected: undefined},
+    {status: 'completed', result: {content: [null]}, expected: undefined},
+    {
+      status: 'completed',
+      result: {content: [], structuredContent: {error: 'quota'}},
+      expected: 'application',
+    },
+    {
+      status: 'completed',
+      result: {structuredContent: {result: '{"success":false}'}},
+      expected: 'application',
+    },
   ])('preserves nested status $expected', ({status, result, expected}) => {
     const {turns} = reconstruct([
       ...simpleTurn().slice(0, 4),
@@ -118,8 +129,31 @@ describe('reconstructTurns', () => {
       }),
       record(2, 'event_msg', {type: 'task_complete', turn_id: 't1'}),
     ]);
-    expect(turns[0].tools[0].errorCategory).toBe(expected);
-    expect(turns[0].tools[0].timingSource).toBe('completion_only');
+    expect(turns[0]!.tools[0]!.errorCategory).toBe(expected);
+    expect(turns[0]!.tools[0]!.timingSource).toBe('completion_only');
+  });
+
+  it('preserves application errors in direct MCP JSON-string replies', () => {
+    const {turns} = reconstruct([
+      ...simpleTurn().slice(0, 4),
+      record(1, 'response_item', {
+        type: 'function_call',
+        call_id: 'direct',
+        name: 'mcp__demo__query',
+        arguments: '{}',
+      }),
+      record(2, 'response_item', {
+        type: 'function_call_output',
+        call_id: 'direct',
+        output: '{"structuredContent":{"error":"quota"}}',
+      }),
+      record(3, 'event_msg', {type: 'task_complete', turn_id: 't1'}),
+    ]);
+    expect(turns[0]!.tools[0]).toMatchObject({
+      callId: 'direct',
+      errorCategory: 'application',
+      timingSource: 'native',
+    });
   });
 
   it('retains a started operation without inventing a successful result', () => {
@@ -136,8 +170,8 @@ describe('reconstructTurns', () => {
       }),
       record(2, 'event_msg', {type: 'task_complete', turn_id: 't1'}),
     ]);
-    expect(turns[0].tools[0]).toMatchObject({errorCategory: 'missing_result'});
-    expect(turns[0].tools[0].result).toBeUndefined();
+    expect(turns[0]!.tools[0]).toMatchObject({errorCategory: 'missing_result'});
+    expect(turns[0]!.tools[0]!.result).toBeUndefined();
   });
 
   it('reconstructs a simple single-call turn', () => {

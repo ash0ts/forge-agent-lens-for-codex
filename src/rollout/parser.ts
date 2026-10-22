@@ -229,6 +229,10 @@ function applyResponseItem(
       if (tool) {
         tool.result = renderOutput(functionOutput.output);
         tool.endTime = timestamp;
+        if (tool.name.startsWith('mcp__') || tool.name.startsWith('mcp.')) {
+          tool.errorCategory = mcpError(functionOutput.output);
+          tool.timingSource = 'native';
+        }
       }
       builder.lastBoundaryTime = timestamp;
       return;
@@ -282,6 +286,10 @@ function applyResponseItem(
       if (tool) {
         tool.result = renderOutput(customOutput.output);
         tool.endTime = timestamp;
+        if (tool.name.startsWith('mcp__') || tool.name.startsWith('mcp.')) {
+          tool.errorCategory = mcpError(customOutput.output);
+          tool.timingSource = 'native';
+        }
       }
       builder.lastBoundaryTime = timestamp;
       return;
@@ -460,14 +468,40 @@ function mcpError(
 ): ToolCall['errorCategory'] {
   if (status === 'failed' || error) return 'protocol';
   if (result == null) return 'missing_result';
+  if (typeof result === 'string') {
+    try {
+      result = JSON.parse(result);
+    } catch {
+      return undefined;
+    }
+  }
+  if (result == null) return 'missing_result';
   if (typeof result !== 'object') return undefined;
   const body = result as Record<string, unknown>;
   if (body.isError || body.error || body.errors) return 'protocol';
   if (body.success === false || body.status === 'error') return 'application';
-  for (const part of Array.isArray(body.content) ? body.content : []) {
+  const payloads = [
+    ...(Array.isArray(body.content)
+      ? body.content.map(part => part?.text)
+      : []),
+    body.structuredContent,
+  ];
+  for (const payload of payloads) {
     try {
-      const inner = JSON.parse(part.text);
-      if (inner.error || inner.errors || inner.success === false)
+      let inner = typeof payload === 'string' ? JSON.parse(payload) : payload;
+      if (inner && typeof inner === 'object' && 'result' in inner) {
+        inner =
+          typeof inner.result === 'string'
+            ? JSON.parse(inner.result)
+            : inner.result;
+      }
+      if (
+        inner &&
+        (inner.error ||
+          inner.errors ||
+          inner.success === false ||
+          inner.status === 'error')
+      )
         return 'application';
     } catch {
       // A plain-text successful response is not an application error.
